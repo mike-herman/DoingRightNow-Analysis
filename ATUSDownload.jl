@@ -1,42 +1,4 @@
-#using Downloads, ZipFile, CSV, DataFrames
-
-# Make the data a home.
-function make_data_dir_if_not_exists()
-    # Check if the the directory "data" exists in the working directory.
-    # If not, create it.
-    # Returns the filepath of the directory for future use.
-    if !ispath("data")
-        mkdir(joinpath("data"))
-    end
-
-    return joinpath("data")
-end
-
-DATA_DIR = make_data_dir_if_not_exists()
-
-# Download ATUS 2021 Respondent file
-
-RESPONDENT_FILE_URL = "https://www.bls.gov/tus/datafiles/atusresp-2021.zip"
-
-resp = HTTP.request("GET", RESPONDENT_FILE_URL)
-resp.body()
-InfoZIP(resp, "./data/")
-
-
-r = HTTP.get(RESPONDENT_FILE_URL, verbose = 0)
-open_zip(r.body)
-
-
-function get_respondent_file()
-    r = HTTP.get(RESPONDENT)
-    open_zip(r.body)
-end
-
-
-using Downloads, InfoZIP, CSV, DataFrames
-make_data_dir_if_not_exists()
-Downloads.download(RESPONDENT_FILE_URL,"./data/atusresp-2021.zip")
-
+using Downloads, ZipFile, CSV, DataFrames
 
 """
     download_atus_data(data_file, year)
@@ -77,4 +39,4 @@ function download_atus_data(data_file, year)
 end
 
 
-resp2021 = download_atus_data("resp","2021")
+# resp2021 = download_atus_data("resp","2021")

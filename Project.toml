@@ -2,5 +2,4 @@
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-InfoZIP = "f4508453-b816-52ab-a864-26fc7f6211fc"
 ZipFile = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
