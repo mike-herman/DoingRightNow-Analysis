@@ -7,7 +7,7 @@ Download the given ATUS data file. This saves the zip file in a subdirectory cal
 This also opens one of the files and returns it as a DataFrame object.
 
 # Arguments
-- `data_file`: The type of ATUS data you want to download. One of `("resp")`.
+- `data_file`: The type of ATUS data you want to download. One of `("resp", "rost")`.
 - `year`: The year you want to pull data for. Note: There is no data for 2020.
 
 # Examples
