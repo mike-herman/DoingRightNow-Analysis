@@ -79,8 +79,6 @@ Returns a copy of that DataFarme with a subset of columns and adds two additiona
 - `stop_time_int`: The integer number of minutes from 4AM when the activity stopped. This is a pointer to `TUCUMDUR24`.
 """
 function clean_activity_df(activity_df)
-    # want_cols = [:TUCASEID, :TUACTIVITY_N, :TUSTARTTIM, :TUSTOPTIME, :TUACTDUR24, :TUCUMDUR24, :TUTIER1CODE, :TUTIER2CODE, :TRTIER2]
-    # out_df = activity_df[:, want_cols]    # using `:` instead of `!` to make a copy.
     sort!(activity_df, [:TUCASEID, :TUACTIVITY_N])    # Sort in place. This will change the order of the input data.
     # Add lagging time integer field.
     transform!(groupby(activity_df, :TUCASEID), :TUCUMDUR24 => (t -> ShiftedArrays.lag(t, 1, default = 0)) => :start_time_int)
@@ -92,4 +90,59 @@ end
 
 function clean_cps_df(cps_dataframe)
     
+    # Filter to just ATUS respondents.
+    filter!(row -> row.TRATUSR == 1, cps2021)
+
+    # Create :GESTFIPS_label
+    STATE_CODE_CSV = joinpath("data","us-state-ansi-fips.csv")
+    state_codes = DataFrame(CSV.File(STATE_CODE_CSV))
+    rename!(state_codes, " st" => :GESTFIPS)
+    rename!(state_codes, " stusps" => :GESTFIPS_label)
+    transform!(state_codes, :state_abbr => (x -> lstrip.(x)) => :state_abbr)
+    leftjoin!(cps_dataframe, state_codes, on = :GESTFIPS)
+
+    # Create HEFAMINC_label
+    HEFAMINC_replacement_dict = Dict(
+        1 => "Less than 5,000",
+        2 => "5,000 to 7,499",
+        3 => "7,500 to 9,999",
+        4 => "10,000 to 12,499",
+        5 => "12,500 to 14,999",
+        6 => "15,000 to 19,999",
+        7 => "20,000 to 24,999",
+        8 => "25,000 to 29,999",
+        9 => "30,000 to 34,999",
+        10 => "35,000 to 39,999",
+        11 => "40,000 to 49,999",
+        12 => "50,000 to 59,999",
+        13 => "60,000 to 74,999",
+        14 => "75,000 to 99,999",
+        15 => "100,000 to 149,999",
+        16 => "150,000 and over"
+    )
+    cps_dataframe.HEFAMINC_label = map(code_int -> HEFAMINC_replacement_dict[code_int], cps_dataframe.HEFAMINC)
+
+    # Create PEMARITL_label, which simplifies the PEMARITL field.
+    PEMARITL_replacement_dict = Dict(
+        -1 => missing,
+        1 => "Married",
+        2 => "Married",
+        3 => "Not Married",
+        4 => "Not Married",
+        5 => "Not Married",
+        6 => "Not Married"
+    )
+    cps_dataframe.PEMARITL_label = map(code_int -> PEMARITL_replacement_dict[code_int], cps_dataframe.PEMARITL)
+    
+    # Label HETENURE.
+     cps_dataframe.HETENURE_label = replace(cps_dataframe.HETENURE, 1 => "Own", 2 => "Rent", 3 => "Non-pay")
+
+    # PRTAGE doesn't need cleaning. It should only have values of 15 or higher.
+
+    want_cols = [:TUCASEID, :TULINENO, :GESTFIPS_label, :HEFAMINC_label, :PEMARITL_label, :HETENURE_label, :PRTAGE]
+    return (cps_dataframe[!, want_cols])
 end
+
+
+cps2021 = download_atus_data("cps", 2021)
+cps = clean_cps_df(cps2021)
