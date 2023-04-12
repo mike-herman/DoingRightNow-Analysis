@@ -1,4 +1,4 @@
-using Downloads, ZipFile, CSV, DataFrames, ShiftedArrays, Dates, Random
+using Downloads, ZipFile, CSV, DataFrames, ShiftedArrays, Dates, Random, Arrow
 
 """
     download_atus_data(data_file, year)
@@ -68,7 +68,7 @@ function clean_resp_df(resp_dataframe)
     )
     resp_dataframe.TUDIARYDAY_label = get.(Ref(diary_day_map), resp_dataframe.TUDIARYDAY, missing)
 
-    return resp_dataframe[!, [:TUCASEID, :TULINENO, :TUDIARYDAY, :TUDIARYDAY_label] ]
+    return resp_dataframe[!, [:TUCASEID, :TUDIARYDAY, :TUDIARYDAY_label] ]
 end
 
 
@@ -101,7 +101,7 @@ Returns a view on the original data with cleaned attributes added.
 function clean_cps_df(cps_dataframe)
     
     # Filter to just ATUS respondents.
-    filter!(row -> row.TRATUSR == 1, cps2021)
+    filter!(row -> row.TRATUSR == 1, cps_dataframe)
 
     # Create :GESTFIPS_label
     STATE_CODE_CSV = joinpath("data","us-state-ansi-fips.csv")
@@ -180,20 +180,94 @@ Filter an ATUS activity DataFrame to the activities that occurred during the sna
 - `df`: A DataFrame with the ATUS activity data. Must include `:start_time_int` and `:stop_time_int` columns.
 
 """
-function snapshot_filter(snap_t::Union{Int,Dates.Time}, df::DataFrame)::DataFrame
+function snapshot_filter(snap_t::Union{Int,Dates.Time}, df::DataFrame; add_snap_time_col=true)::DataFrame
     snap_t_int = isa(snap_t, Dates.Time) ? time_to_atus_int(snap_t) : snap_t
 
-    filter([:start_time_int, :stop_time_int] => (start, stop) -> start <= snap_t_int < stop, df)
+    out_df = filter([:start_time_int, :stop_time_int] => (start, stop) -> start <= snap_t_int < stop, df)
+
+    if add_snap_time_col
+        out_df.snap_time_int .= snap_t
+    end
+
+    return out_df
 end
 
 
-act2021 = download_atus_data("act", 2021)
-act = clean_activity_df(act2021)
+"""
+    generate_snapshots(df::DataFrame, snap_vector::Vector{Int})::DataFrame
+
+Create a snapshot dataframe from ATUS activity file.
+
+This function takes an ATUS activity file and a grid vector of times (as integers).
+
+The function returns a DataFrame with one row per activity that occurred at each time.
+The `snap_time_int` column is also appended, allowing us to see which snapshot time was used for each row.
+"""
+function generate_snapshots(df::DataFrame, snap_vector::Vector{Int})::DataFrame
+    # For each element in the snap_vector, take snapshots. This produces a vector of dataframes.
+    # reduce this vector to a single dataframe using reduce(vcat,...).
+    # Return the result. This will be a copy of the data, not a view.
+    out_df = reduce(vcat, snapshot_filter.(snap_vector, Ref(df)))
+    return out_df
+end
 
 
-sample_n = 1_000
-# Generate `sample_n` random integers between 0 and 1399.
-snap_sample = trunc.(Int,rand(sample_n) .* 1440)
-snaps_df = snapshot_filter.(snap_sample, Ref(act))
+"""
+    join_snapshot_data(act_snapshots_df::DataFrame, cps_df::DataFrame, resp_df::DataFrame)::DataFrame
 
-first(snaps_df, 10)
+This function joins on atus activity snapshot df, a cps df, and a respondent df on the `:TUCASEID` field.
+"""
+function join_snapshot_data(act_snapshots_df::DataFrame, cps_df::DataFrame, resp_df::DataFrame)::DataFrame
+    out_df = copy(act_snapshots_df)
+    leftjoin!(out_df, cps_df, on=:TUCASEID)
+    leftjoin!(out_df, resp_df, on=:TUCASEID)
+    return out_df
+end
+
+"""
+    create_data_df(year::Union{Int,String}; snapshot_vector::Vector{Int} = [i for i in 0:5:(1435)], save_df_to_file::Union{Bool, String}=false, return_df::Bool=true)::DataFrame
+
+This function pulls, processes, and returns the all ATUS data used for modelling. It has some arguments for specifying which data and what to do with it.
+
+In particular, the `save_df_to_file` and `return_df` arguments let you specify whether this function saves data to a file, returns the dataframe, or both.
+
+If saving to a file, please use the `.arrow` extension.
+
+# Arguments
+- `year::Union{Int,String}`: The year of ATUS data that we're pulling. Can be integer or string.
+- `snapshot_vector::Vector{Int}`: (default is [0, 5, ..., 1435]). A vector of snapshots times (as integers) to take. (See the `time_to_atus_int` for converting Time objects to the appropriate integer.)
+- `save_df_to_file::Union{Bool,String}`: (default = false). If a filename is provided as a string, this will save the dataframe as an Apache Arrow file in the "data" subdirectory of the current directory.
+- `return_df::Bool`: (default = true). If `true`, the function will return the final dataframe.
+"""
+function create_data_df(year::Union{Int,String}; 
+    snapshot_vector = [i for i in 0:5:(1435)],
+    save_df_to_file::Union{Bool, String}=false, 
+    return_df::Bool=true
+    )::DataFrame
+    
+    # Download the data files and save as dataframe.
+    act = download_atus_data("act", year)
+    cps = download_atus_data("cps", year)
+    resp = download_atus_data("resp", year)
+
+    # Clean the data.
+    act = clean_activity_df(act)
+    cps = clean_cps_df(cps)
+    resp = clean_resp_df(resp)
+    
+    # Generate activity snapshots.
+    act_snaps = generate_snapshots(act, snapshot_vector)
+
+    # Join the datat together.
+    out_df = join_snapshot_data(act_snaps, cps, resp)
+
+    if isa(save_df_to_file, String)
+        Arrow.write(joinpath("data",save_df_to_file), out_df)
+    end
+
+    if return_df
+        return out_df
+    end
+end
+
+
