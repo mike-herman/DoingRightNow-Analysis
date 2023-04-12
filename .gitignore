@@ -25,3 +25,7 @@ Manifest.toml
 
 # Downloaded files.
 *.zip
+
+# MacOS files
+*.DS_Store
+.DS_Store
