@@ -243,7 +243,7 @@ function create_data_df(year::Union{Int,String};
     snapshot_vector = [i for i in 0:5:(1435)],
     save_df_to_file::Union{Bool, String}=false, 
     return_df::Bool=true
-    )::DataFrame
+    )
     
     # Download the data files and save as dataframe.
     act = download_atus_data("act", year)
