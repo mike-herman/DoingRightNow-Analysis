@@ -1,4 +1,4 @@
-using Downloads, ZipFile, CSV, DataFrames, ShiftedArrays
+using Downloads, ZipFile, CSV, DataFrames, ShiftedArrays, Dates, Random
 
 """
     download_atus_data(data_file, year)
@@ -26,12 +26,16 @@ function download_atus_data(data_file, year)
         mkdir(joinpath("data"))
     end
 
-    f = Downloads.download(file_url, joinpath("data",zip_file_name))
-    
+    if isfile(joinpath("data",zip_file_name))
+        f = joinpath("data",zip_file_name)
+    else
+        f = Downloads.download(file_url, joinpath("data",zip_file_name))
+    end
+
     # Read the .dat (comma-seperated data) file into a DataFrame.
     data_file_name = "atus$(data_file)_$(year).dat"
     z = ZipFile.Reader(f)
-    file_in_zip = filter(x->x.name == data_file_name, z.files)[1]
+    file_in_zip = filter( x -> occursin(data_file_name, x.name), z.files)[1]
     df = DataFrame(CSV.File(file_in_zip))
     close(z)
         
@@ -88,6 +92,12 @@ function clean_activity_df(activity_df)
 end
 
 
+"""
+    clean_cps_df(cps_dataframe)
+
+Takes a DataFrame of the ATUS cps file.
+Returns a view on the original data with cleaned attributes added.
+"""
 function clean_cps_df(cps_dataframe)
     
     # Filter to just ATUS respondents.
@@ -98,7 +108,7 @@ function clean_cps_df(cps_dataframe)
     state_codes = DataFrame(CSV.File(STATE_CODE_CSV))
     rename!(state_codes, " st" => :GESTFIPS)
     rename!(state_codes, " stusps" => :GESTFIPS_label)
-    transform!(state_codes, :state_abbr => (x -> lstrip.(x)) => :state_abbr)
+    transform!(state_codes, :GESTFIPS_label => (x -> lstrip.(x)) => :GESTFIPS_label)
     leftjoin!(cps_dataframe, state_codes, on = :GESTFIPS)
 
     # Create HEFAMINC_label
@@ -144,5 +154,46 @@ function clean_cps_df(cps_dataframe)
 end
 
 
-cps2021 = download_atus_data("cps", 2021)
-cps = clean_cps_df(cps2021)
+"""
+    time_to_atus_int(t::Dates.Time)::Int
+
+Converts a timestamp to the integer time in minutes since 4AM.
+
+If a value before 4AM is provided (e.g. 3AM) then the minutes between 4AM and that time the following day is provided.
+"""
+function time_to_atus_int(t::Dates.Time)::Int
+    start_of_day = Dates.Time("00:00:00")
+    shifted_t = t - Dates.Hour(4)
+    return floor(shifted_t - start_of_day, Dates.Minute).value
+    #return Dates.Minute(shifted_t - start_of_day).value
+    #return convert(Dates.Minute, t - start_of_day).value
+end
+
+
+"""
+    snapshot_filter(snap_t::Union{Int,Dates.Time}, df::DataFrame)::DataFrame
+
+Filter an ATUS activity DataFrame to the activities that occurred during the snapshot time.
+
+# Arguments
+- `snap_t`: Either a Time object or an integer representing the number of minutes since 4AM.
+- `df`: A DataFrame with the ATUS activity data. Must include `:start_time_int` and `:stop_time_int` columns.
+
+"""
+function snapshot_filter(snap_t::Union{Int,Dates.Time}, df::DataFrame)::DataFrame
+    snap_t_int = isa(snap_t, Dates.Time) ? time_to_atus_int(snap_t) : snap_t
+
+    filter([:start_time_int, :stop_time_int] => (start, stop) -> start <= snap_t_int < stop, df)
+end
+
+
+act2021 = download_atus_data("act", 2021)
+act = clean_activity_df(act2021)
+
+
+sample_n = 1_000
+# Generate `sample_n` random integers between 0 and 1399.
+snap_sample = trunc.(Int,rand(sample_n) .* 1440)
+snaps_df = snapshot_filter.(snap_sample, Ref(act))
+
+first(snaps_df, 10)
