@@ -30,3 +30,4 @@ Manifest.toml
 # MacOS files
 *.DS_Store
 .DS_Store
+.vscode*
